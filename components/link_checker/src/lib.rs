@@ -10,7 +10,6 @@ use reqwest::StatusCode;
 use errors::Result;
 
 use std::collections::HashMap;
-use std::error::Error;
 use std::sync::{Arc, RwLock};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -74,7 +73,7 @@ pub fn check_url(url: &str) -> LinkResult {
             }
         }
         Ok(response) => LinkResult { code: Some(response.status()), error: None },
-        Err(e) => LinkResult { code: None, error: Some(e.description().to_string()) },
+        Err(e) => LinkResult { code: None, error: Some(e.to_string()) },
     };
 
     LINKS.write().unwrap().insert(url.to_string(), res.clone());
