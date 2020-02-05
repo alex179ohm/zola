@@ -1,8 +1,12 @@
-use lazy_static::lazy_static;
-use reqwest::header::{HeaderMap, ACCEPT};
-use reqwest::{blocking::Client, StatusCode};
+extern crate reqwest;
+#[macro_use]
+extern crate lazy_static;
 
-use config::LinkChecker;
+extern crate errors;
+
+use reqwest::header::{HeaderMap, ACCEPT};
+use reqwest::StatusCode;
+
 use errors::Result;
 
 use std::collections::HashMap;
@@ -22,7 +26,7 @@ impl LinkResult {
         }
 
         if let Some(c) = self.code {
-            return c.is_success() || c == StatusCode::NOT_MODIFIED;
+            return c.is_success();
         }
 
         true
@@ -46,7 +50,7 @@ lazy_static! {
     static ref LINKS: Arc<RwLock<HashMap<String, LinkResult>>> = Arc::new(RwLock::new(HashMap::new()));
 }
 
-pub fn check_url(url: &str, config: &LinkChecker) -> LinkResult {
+pub fn check_url(url: &str) -> LinkResult {
     {
         let guard = LINKS.read().unwrap();
         if let Some(res) = guard.get(url) {
@@ -58,43 +62,17 @@ pub fn check_url(url: &str, config: &LinkChecker) -> LinkResult {
     headers.insert(ACCEPT, "text/html".parse().unwrap());
     headers.append(ACCEPT, "*/*".parse().unwrap());
 
-    let client = Client::new();
-
-    let check_anchor = !config.skip_anchor_prefixes.iter().any(|prefix| url.starts_with(prefix));
+    let client = reqwest::Client::new();
 
     // Need to actually do the link checking
     let res = match client.get(url).headers(headers).send() {
-        Ok(ref mut response) if check_anchor && has_anchor(url) => {
-            let body = {
-                let mut buf: Vec<u8> = vec![];
-                response.copy_to(&mut buf).unwrap();
-                String::from_utf8(buf).unwrap()
-            };
-
-            match check_page_for_anchor(url, body) {
+        Ok(ref mut response) if has_anchor(url) => {
+            match check_page_for_anchor(url, response.text()) {
                 Ok(_) => LinkResult { code: Some(response.status()), error: None },
                 Err(e) => LinkResult { code: None, error: Some(e.to_string()) },
             }
         }
-        Ok(response) => {
-            if response.status().is_success() || response.status() == StatusCode::NOT_MODIFIED {
-                LinkResult { code: Some(response.status()), error: None }
-            } else {
-                let error_string = if response.status().is_informational() {
-                    format!("Informational status code ({}) received", response.status())
-                } else if response.status().is_redirection() {
-                    format!("Redirection status code ({}) received", response.status())
-                } else if response.status().is_client_error() {
-                    format!("Client error status code ({}) received", response.status())
-                } else if response.status().is_server_error() {
-                    format!("Server error status code ({}) received", response.status())
-                } else {
-                    format!("Non-success status code ({}) received", response.status())
-                };
-
-                LinkResult { code: None, error: Some(error_string) }
-            }
-        }
+        Ok(response) => LinkResult { code: Some(response.status()), error: None },
         Err(e) => LinkResult { code: None, error: Some(e.to_string()) },
     };
 
